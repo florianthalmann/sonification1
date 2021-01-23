@@ -1,0 +1,7 @@
+.cache
+node_modules
+dist
+sounds
+*.mp4
+*.mov
+yarn-error.log

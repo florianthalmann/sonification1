@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "outDir": "./lib",
+        "allowJs": false,
+        "declaration": true,
+        "module": "commonjs",
+        "target": "es2015",
+        "moduleResolution": "node",
+        "noImplicitAny": false
+    },
+    "include": [
+        "index.ts"
+    ],
+    "exclude": [
+        "node_modules"
+    ],
+    "typeRoots": [
+      "node_modules/@types",
+      "globals.d.ts"
+    ] 
+}
