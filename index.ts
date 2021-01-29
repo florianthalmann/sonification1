@@ -5,7 +5,7 @@ import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import * as Tone from 'tone';
 import * as _ from 'lodash';
 
-import videoURL from './H3.mov'//'./shibuya.mp4'//'./我的故事.MP4'//'./shibuya2.mp4';
+import videoURL from './shibuya.mp4'//'./我的故事.MP4'//'./shibuya2.mp4';
 import sounds from './sounds/*.mp3';
 
 let modelPromise: Promise<cocoSsd.ObjectDetection>;
@@ -46,11 +46,13 @@ interface Object {
   bbox: [number, number, number, number],
   class: string,
   score: number,
-  color: string
+  color: string,
+  player?: Tone.Player
+  panner?: Tone.Panner3D
 }
 
 let objects: Object[] = [];
-const players = {};
+const reverb = new Tone.Reverb({wet: 0.5});
 
 async function detect() {
   if (!model) {
@@ -67,22 +69,26 @@ async function detect() {
   const pairs = pairUp(objects, predictions);
   pairs.forEach(([i,j]) => _.extend(objects[i], predictions[j]));
   //remove objects that disappeared and add new objects
-  objects = objects.filter((_o,i) => pairs.map(p => p[0]).indexOf(i) >= 0);
+  const remain = pairs.map(p => p[0]);
+  objects.filter((_o,i) => remain.indexOf(i) < 0).forEach(o => o.player.stop());
+  objects = objects.filter((_o,i) => remain.indexOf(i) >= 0);
   _.difference(_.range(predictions.length), pairs.map(p => p[1])).forEach(j =>
     objects.push(_.extend(predictions[j], {color: getRandomColor()})));
   
+  //log counts
+  console.log(_.countBy(objects, p => p.class))
+  
+  //update visuals
   const heightScale = (clientHeight / videoHeight);
   const widthScale = (clientWidth / videoWidth);
-  
   context.clearRect(0, 0, clientWidth, clientHeight);
   objects.forEach(object => {
-      
       const scaledBox: [number, number, number, number] = [
         object.bbox[0] * widthScale,
         object.bbox[1] * heightScale + 80,
         object.bbox[2] * widthScale,
         object.bbox[3] * heightScale
-      ]
+      ];
       
       if (scaledBox[2] < 0.7 * clientWidth) {
         context.lineWidth = 2;
@@ -96,26 +102,20 @@ async function detect() {
       }
   })
   
-  //update players based on object counts
-  const counts = _.countBy(objects, p => p.class);
-  console.log(counts)
+  //add new players
+  objects.filter(o => !o.player).forEach(o => {
+    const classSounds = _.values(sounds).filter(s => s.indexOf(o.class) >= 0);
+    o.player = new Tone.Player(_.sample(classSounds));
+    o.player.volume.value = Tone.gainToDb(0.1);
+    o.player.autostart = true;
+    console.log((o.bbox[0]/videoWidth-0.5)*0.05, (o.bbox[1]/videoHeight)*-0.05)
+    o.panner = new Tone.Panner3D((o.bbox[0]/videoWidth-0.5)*0.01, (o.bbox[1]/videoHeight)*-0.01, 0.1);
+    o.player.chain(o.panner, reverb, Tone.Destination);
+  });
   
-  for (let c in counts) {
-    const csounds = _.values(sounds).filter(s => s.indexOf(c) >= 0);
-    if (csounds.length > 0) {
-      if (!players[c]) players[c] = [];
-      
-      while (players[c].length < _.ceil(counts[c]/2)) {
-        const player = new Tone.Player(_.sample(csounds)).toDestination();
-        player.autostart = true;
-        players[c].push(player);
-      }
-      
-      while (players[c].length > _.ceil(counts[c]/2)) {
-        players[c].pop().stop();
-      }
-    }
-  }
+  //update positions
+  objects.forEach(o => o.panner
+    .setPosition(o.bbox[0]/videoWidth-0.5, o.bbox[1]/videoHeight-0.5, 0));
   
   setTimeout(detect, 10);
 };
