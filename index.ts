@@ -5,7 +5,7 @@ import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import * as Tone from 'tone';
 import * as _ from 'lodash';
 
-import videoURL from './shibuya.mp4'//'./我的故事.MP4'//'./shibuya2.mp4';
+import videoURL from './H3.mov'//'./shibuya.mp4'//'./我的故事.MP4'//'./shibuya2.mp4';
 import sounds from './sounds/*.mp3';
 
 let modelPromise: Promise<cocoSsd.ObjectDetection>;
@@ -42,6 +42,14 @@ window.onload = () => {
   })
 }
 
+interface Object {
+  bbox: [number, number, number, number],
+  class: string,
+  score: number,
+  color: string
+}
+
+let objects: Object[] = [];
 const players = {};
 
 async function detect() {
@@ -53,40 +61,43 @@ async function detect() {
   const predictions = await model.detect(video);
   console.timeEnd('predict1');
   
-  function getRandomColour(){
-    const red = Math.floor(Math.random()* 255);
-    const green = Math.floor(Math.random() * 255);
-    const blue = Math.floor(Math.random() * 255);
-    return "rgba("+red+","+green+"," +blue+", 0.5 )";  
-  }
-  
   context.font = '10px Arial';
   
+  //pair up objects and update
+  const pairs = pairUp(objects, predictions);
+  pairs.forEach(([i,j]) => _.extend(objects[i], predictions[j]));
+  //remove objects that disappeared and add new objects
+  objects = objects.filter((_o,i) => pairs.map(p => p[0]).indexOf(i) >= 0);
+  _.difference(_.range(predictions.length), pairs.map(p => p[1])).forEach(j =>
+    objects.push(_.extend(predictions[j], {color: getRandomColor()})));
+  
+  const heightScale = (clientHeight / videoHeight);
+  const widthScale = (clientWidth / videoWidth);
+  
   context.clearRect(0, 0, clientWidth, clientHeight);
-  predictions.forEach(box => {
-
-      const heightScale = (clientHeight / videoHeight);
-      const widthScale = (clientWidth / videoWidth);
+  objects.forEach(object => {
       
-      box.bbox[0] *= widthScale;
-      box.bbox[1] = box.bbox[1] * heightScale + 80;
-      box.bbox[2] *= widthScale;
-      box.bbox[3] *= heightScale;
+      const scaledBox: [number, number, number, number] = [
+        object.bbox[0] * widthScale,
+        object.bbox[1] * heightScale + 80,
+        object.bbox[2] * widthScale,
+        object.bbox[3] * heightScale
+      ]
       
-      if (box.bbox[2] < 0.7 * clientWidth) {
+      if (scaledBox[2] < 0.7 * clientWidth) {
         context.lineWidth = 2;
-        context.strokeStyle = getRandomColour();
-        context.fillStyle = getRandomColour();
-        context.fillRect(...box.bbox);
+        context.strokeStyle = object.color//getRandomColor();
+        context.fillStyle = object.color//getRandomColor();
+        context.fillRect(...scaledBox);
         context.fillStyle = 'white';
         context.fillText(
-          box.score.toFixed(3) + ' ' + box.class, box.bbox[0],
-          box.bbox[1] > 10 ? box.bbox[1] - 5 : 10);
+          object.score.toFixed(3) + ' ' + object.class, scaledBox[0],
+          scaledBox[1] > 10 ? scaledBox[1] - 5 : 10);
       }
   })
   
   //update players based on object counts
-  const counts = _.countBy(predictions, p => p.class);
+  const counts = _.countBy(objects, p => p.class);
   console.log(counts)
   
   for (let c in counts) {
@@ -108,3 +119,30 @@ async function detect() {
   
   setTimeout(detect, 10);
 };
+
+function getRandomColor() {
+  const red = Math.floor(Math.random()* 255);
+  const green = Math.floor(Math.random() * 255);
+  const blue = Math.floor(Math.random() * 255);
+  return "rgba("+red+","+green+"," +blue+", 0.5 )";  
+}
+
+function pairUp(o1: cocoSsd.DetectedObject[], o2: cocoSsd.DetectedObject[]) {
+  const dists: [number, number, number][][] = o1.map((o,i) => o2.map((p,j) =>
+    [i, j, euclideanDist(o.bbox.slice(0,2), p.bbox.slice(0,2))]));
+  const mins = _.sortBy(_.flatten(dists), d => d[2]);
+  //console.log(o1, o2, dists, mins, _.min([o1.length, o2.length]))
+  const pairs: [number, number][] = [];
+  while (pairs.length < _.min([o1.length, o2.length])) {
+    const [ii, jj] = pairs.length > 0 ? _.unzip(pairs) : [[],[]];
+    //console.log(pairs, ii, jj)
+    const min = mins.filter(([i,j,_d]) => ii.indexOf(i) < 0 && jj.indexOf(j) < 0)[0]
+    pairs.push([min[0], min[1]]);
+  }
+  return pairs;
+}
+
+function euclideanDist(v1: number[], v2: number[]) {
+  return Math.sqrt(_.sum(_.range(v1.length).map(i =>
+      Math.pow(Math.abs(v1[i] - v2[i]), 2))));
+}
