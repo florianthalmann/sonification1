@@ -25,6 +25,7 @@ window.onload = () => {
   
   const canvas = <HTMLCanvasElement>document.getElementById('canvas');
   context = canvas.getContext('2d');
+  context.font = '10px Arial';
   canvas.innerHTML = ""
   
   document.getElementById("everything").addEventListener("click", function() {
@@ -63,8 +64,6 @@ async function detect() {
   const predictions = await model.detect(video);
   console.timeEnd('predict1');
   
-  context.font = '10px Arial';
-  
   //pair up objects and update
   const pairs = pairUp(objects, predictions);
   pairs.forEach(([i,j]) => _.extend(objects[i], predictions[j]));
@@ -74,8 +73,6 @@ async function detect() {
   objects = objects.filter((_o,i) => remain.indexOf(i) >= 0);
   _.difference(_.range(predictions.length), pairs.map(p => p[1])).forEach(j =>
     objects.push(_.extend(predictions[j], {color: getRandomColor()})));
-  
-  //log counts
   console.log(_.countBy(objects, p => p.class))
   
   //update visuals
@@ -102,20 +99,25 @@ async function detect() {
       }
   })
   
+  const PAN_FACTOR = 0.1;
+  
   //add new players
   objects.filter(o => !o.player).forEach(o => {
     const classSounds = _.values(sounds).filter(s => s.indexOf(o.class) >= 0);
     o.player = new Tone.Player(_.sample(classSounds));
     o.player.volume.value = Tone.gainToDb(0.1);
     o.player.autostart = true;
-    console.log((o.bbox[0]/videoWidth-0.5)*0.05, (o.bbox[1]/videoHeight)*-0.05)
-    o.panner = new Tone.Panner3D((o.bbox[0]/videoWidth-0.5)*0.01, (o.bbox[1]/videoHeight)*-0.01, 0.1);
+    o.panner = new Tone.Panner3D((o.bbox[0]/videoWidth-0.5)*PAN_FACTOR,
+      (o.bbox[1]/videoHeight)*-PAN_FACTOR, 0.1);
     o.player.chain(o.panner, reverb, Tone.Destination);
   });
   
-  //update positions
-  objects.forEach(o => o.panner
-    .setPosition(o.bbox[0]/videoWidth-0.5, o.bbox[1]/videoHeight-0.5, 0));
+  //update player positions
+  objects.forEach(o => {
+    o.panner.positionX.linearRampTo((o.bbox[0]/videoWidth-0.5)*PAN_FACTOR, 0.03);
+    o.panner.positionY.linearRampTo((o.bbox[1]/videoHeight)*-PAN_FACTOR, 0.03);
+    //.setPosition(o.bbox[0]/videoWidth-0.5, o.bbox[1]/videoHeight-0.5)
+  });
   
   setTimeout(detect, 10);
 };
